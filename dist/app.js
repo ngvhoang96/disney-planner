@@ -1,4 +1,5 @@
 import { initialDays } from './itinerary.js';
+import { readTripFile } from './trip-file.js';
 import { dayPark, eventPlace, parks } from './parks.js';
 import { findAddressMatches } from './address-search.js';
 import { clearMap, mountMap } from './schedule-map.js';
@@ -688,8 +689,14 @@ function manageDays() {
     <button type="button" class="button danger" data-remove-day="${day.id}" aria-label="${escape('Remove ' + day.title)}">Remove</button>
   </div>`).join('');
   openDialog('Manage trip days', `<div class="day-list">${list || '<p>No trip days.</p>'}</div>
-    <div class="dialog-actions"><button class="button primary" type="button" id="manage-add">${icon('plus')} Add day</button></div>`);
+    <div class="dialog-actions">
+      <button class="button outline" type="button" id="import-trip">Import JSON</button>
+      <button class="button outline" type="button" id="export-trip">Export JSON</button>
+      <button class="button primary" type="button" id="manage-add">${icon('plus')} Add day</button>
+    </div>`);
   $('manage-add').onclick = addDay;
+  $('import-trip').onclick = importTrip;
+  $('export-trip').onclick = exportTrip;
   modal.querySelectorAll('[data-edit-day]').forEach(button => {
     button.onclick = () => editDay(days.find(day => day.id === button.dataset.editDay));
   });
@@ -704,6 +711,49 @@ function manageDays() {
       }, manageDays);
     };
   });
+}
+
+function importTrip() {
+  openDialog('Import trip JSON', `
+    <form class="dialog-form" id="trip-import-form">
+      <p class="detail-text">Importing replaces the trip saved in this browser. Export it first if you want a copy.</p>
+      <label class="field">Trip JSON file<input type="file" name="trip" accept=".json,application/json" required></label>
+      ${errorBox}<div class="dialog-actions">${cancel}${save('Replace trip')}</div>
+    </form>`, '[name=trip]');
+  modal.querySelector('.cancel').onclick = manageDays;
+  $('trip-import-form').onsubmit = async event => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const file = form.elements.trip.files[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) return showFormError(form, 'Choose a JSON file smaller than 5 MB.');
+
+    const submit = form.querySelector('[type=submit]');
+    submit.disabled = true;
+    try {
+      const imported = readTripFile(await file.text(), parks, categories);
+      if (!dialog.open || !form.isConnected) return;
+      days = imported;
+      active = days.find(day => day.id === today)?.id ?? days[0]?.id;
+      resizing = null;
+      dialog.close();
+      update('Trip imported');
+    } catch (error) {
+      showFormError(form, error.message || 'Could not read the trip file.');
+    } finally {
+      submit.disabled = false;
+    }
+  };
+}
+
+function exportTrip() {
+  const file = new Blob([JSON.stringify({ version: 1, days }, null, 2) + '\n'], { type: 'application/json' });
+  const url = URL.createObjectURL(file);
+  const download = document.createElement('a');
+  download.href = url;
+  download.download = 'disney-planner.trip.json';
+  download.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 function editDay(day) {
   openDialog('Edit trip day', `<form class="dialog-form" id="day-form">
